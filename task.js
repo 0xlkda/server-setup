@@ -14,11 +14,12 @@ function runner(task, done, pollingRate = 1000) {
 }
 
 class Task {
-  constructor({ run, pollingRate }) {
+  constructor({ run, pollingRate, timeout }) {
+    this._run = run
     this.state = 'CLEAN'
     this.result = undefined
     this.pollingRate = pollingRate ??= 500
-    this._run = run
+    this.timeout = timeout ??= 0
   }
 
   changeState(state) {
@@ -51,19 +52,28 @@ class Task {
     this.changeState('RUNNING')
     this._run()
       .then((result) => {
-        this.result = result
-        this.changeState('DONE')
+        if (!this.isAborted()) {
+          this.result = result
+          this.changeState('DONE')
+        }
       })
       .catch((error) => {
-        this.result = error
-        this.changeState('ERROR')
+        if (!this.isAborted()) {
+          this.result = error
+          this.changeState('ERROR')
+        }
       })
+
+    // timeout handler
+    if (this.timeout > 0) {
+      setTimeout(() => process.nextTick(() => this.abort()), this.timeout)
+    }
 
     return this
   }
 
   abort() {
-    this.changeState('ABORTED')
+    if (!this.isDone()) this.changeState('ABORTED')
   }
 }
 
@@ -79,18 +89,10 @@ class TaskRunner extends EventEmitter {
   }
 }
 
-/* 
-* Samples
-const errorTask = new Task({
-  pollingRate: 250,
-  run() {
-    return new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('cat meow!')), 1500))
-  }
-})
-
+/* Samples */
 const successTask = new Task({
-  pollingRate: 250,
+  pollingRate: 1000,
+  timeout: 300,
   run() {
     return new Promise((resolve) =>
       setTimeout(() => resolve('ok'), 400))
@@ -102,10 +104,3 @@ taskRunner.run()
 taskRunner.on('done', (result) => console.log(result))
 taskRunner.on('error', (result) => console.error(result))
 taskRunner.on('aborted', () => console.log('aborted'))
-
-var taskRunner = new TaskRunner(errorTask)
-taskRunner.run()
-taskRunner.on('done', (result) => console.log(result))
-taskRunner.on('error', (result) => console.error(result))
-taskRunner.on('aborted', () => console.log('aborted'))
-*/
